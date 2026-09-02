@@ -1,0 +1,85 @@
+import type { StockAnalytics } from "@/lib/marketEngine";
+import { isScreenerHit } from "@/lib/marketEngine";
+import type { StockDetailResponse, StockListItem } from "@/lib/types";
+
+export function toListItem(item: StockAnalytics): StockListItem {
+  return {
+    code: item.stock.code,
+    name: item.stock.name,
+    market: item.stock.market,
+    sector: item.stock.sector,
+    concept: item.stock.concept,
+    isIndexMember: item.stock.isIndexMember,
+    isNewIpo: item.stock.isNewIpo,
+    listedDate: item.stock.listedDate,
+    marketCapYi: Number(item.stock.totalMarketCapYi),
+    peRatio: Number(item.stock.peRatio),
+    price: Number(item.quote.price),
+    changePct: Number(item.quote.changePct),
+    open: Number(item.quote.open),
+    high: Number(item.quote.high),
+    low: Number(item.quote.low),
+    prevClose: Number(item.quote.prevClose),
+    volumeLots: Number(item.quote.volumeLots),
+    amountWan: Number(item.quote.amountWan),
+    turnoverRate: Number(item.quote.turnoverRate),
+    ma5: Number(item.quote.ma5),
+    ma10: Number(item.quote.ma10),
+    ma20: Number(item.quote.ma20),
+    ma60: Number(item.quote.ma60),
+    overallScore: item.overallScore,
+    growthScore: item.growthScore,
+    categoryAverages: item.categoryAverages,
+    breakout: item.breakout,
+    isScreenerHit: isScreenerHit(item),
+    updatedAt: item.quote.updatedAt instanceof Date ? item.quote.updatedAt.toISOString() : String(item.quote.updatedAt),
+  };
+}
+
+export function toDetail(item: StockAnalytics): StockDetailResponse {
+  return {
+    stock: {
+      code: item.stock.code,
+      name: item.stock.name,
+      market: item.stock.market,
+      sector: item.stock.sector,
+      concept: item.stock.concept.split(",").filter(Boolean),
+      isIndexMember: item.stock.isIndexMember,
+      isNewIpo: item.stock.isNewIpo,
+      listedDate: item.stock.listedDate,
+      description: item.stock.description,
+      marketCapYi: Number(item.stock.totalMarketCapYi),
+      peRatio: Number(item.stock.peRatio),
+    },
+    quote: {
+      price: Number(item.quote.price),
+      changePct: Number(item.quote.changePct),
+      open: Number(item.quote.open),
+      high: Number(item.quote.high),
+      low: Number(item.quote.low),
+      prevClose: Number(item.quote.prevClose),
+      volumeLots: Number(item.quote.volumeLots),
+      amountWan: Number(item.quote.amountWan),
+      turnoverRate: Number(item.quote.turnoverRate),
+      ma5: Number(item.quote.ma5),
+      ma10: Number(item.quote.ma10),
+      ma20: Number(item.quote.ma20),
+      ma60: Number(item.quote.ma60),
+      updatedAt: item.quote.updatedAt instanceof Date ? item.quote.updatedAt.toISOString() : String(item.quote.updatedAt),
+    },
+    kline: item.kline,
+    dimensions: item.dimensions.map((d) => ({
+      category: d.category as StockDetailResponse["dimensions"][number]["category"],
+      key: d.dimensionKey,
+      label: d.label,
+      score: d.score,
+      summary: d.summary,
+    })),
+    categoryAverages: item.categoryAverages,
+    overallScore: item.overallScore,
+    growthScore: item.growthScore,
+    breakout: item.breakout,
+    isScreenerHit: isScreenerHit(item),
+    serverTime: new Date().toISOString(),
+  };
+}
