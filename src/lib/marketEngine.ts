@@ -160,78 +160,83 @@ function average(nums: number[]): number {
 }
 
 export async function getMarketSnapshot(): Promise<StockAnalytics[]> {
-  await ensureFreshMarket();
+  try {
+    await ensureFreshMarket();
 
-  const [allStocks, allQuotes, allKlines, allDims] = await Promise.all([
-    db.select().from(stocks),
-    db.select().from(quotes),
-    db.select().from(klines).orderBy(klines.stockId, klines.tradeDate),
-    db.select().from(dimensionScores),
-  ]);
+    const [allStocks, allQuotes, allKlines, allDims] = await Promise.all([
+      db.select().from(stocks),
+      db.select().from(quotes),
+      db.select().from(klines).orderBy(klines.stockId, klines.tradeDate),
+      db.select().from(dimensionScores),
+    ]);
 
-  const quoteByStock = new Map(allQuotes.map((q) => [q.stockId, q]));
-  const klinesByStock = new Map<number, typeof allKlines>();
-  for (const row of allKlines) {
-    const arr = klinesByStock.get(row.stockId) ?? [];
-    arr.push(row);
-    klinesByStock.set(row.stockId, arr);
+    const quoteByStock = new Map(allQuotes.map((q) => [q.stockId, q]));
+    const klinesByStock = new Map<number, typeof allKlines>();
+    for (const row of allKlines) {
+      const arr = klinesByStock.get(row.stockId) ?? [];
+      arr.push(row);
+      klinesByStock.set(row.stockId, arr);
+    }
+    const dimsByStock = new Map<number, DimensionScore[]>();
+    for (const row of allDims) {
+      const arr = dimsByStock.get(row.stockId) ?? [];
+      arr.push(row);
+      dimsByStock.set(row.stockId, arr);
+    }
+
+    const result: StockAnalytics[] = [];
+
+    for (const stock of allStocks) {
+      const quote = quoteByStock.get(stock.id);
+      const kRows = klinesByStock.get(stock.id) ?? [];
+      const dims = dimsByStock.get(stock.id) ?? [];
+      if (!quote || kRows.length === 0) continue;
+
+      const kline: KlinePoint[] = kRows.map((r) => ({
+        date: r.tradeDate,
+        open: Number(r.open),
+        high: Number(r.high),
+        low: Number(r.low),
+        close: Number(r.close),
+        volume: Number(r.volume),
+      }));
+
+      const closes = kline.map((k) => k.close);
+      const volumes = kline.map((k) => k.volume);
+      const livePrice = Number(quote.price);
+      const liveVolume = Number(quote.volumeLots) * 100 || volumes[volumes.length - 1];
+      const effectiveCloses = [...closes, livePrice];
+      const effectiveVolumes = [...volumes, liveVolume];
+
+      const breakout = detectBottomBreakout(effectiveCloses, effectiveVolumes);
+
+      const categoryAverages = {
+        macro: average(dims.filter((d) => d.category === "macro").map((d) => d.score)),
+        financial: average(dims.filter((d) => d.category === "financial").map((d) => d.score)),
+        technical: average(dims.filter((d) => d.category === "technical").map((d) => d.score)),
+        industry: average(dims.filter((d) => d.category === "industry").map((d) => d.score)),
+      } as Record<DimensionCategory, number>;
+
+      const overallScore = average(dims.map((d) => d.score));
+      const growthScore = average(dims.filter((d) => GROWTH_DIMENSION_KEYS.includes(d.dimensionKey)).map((d) => d.score));
+
+      result.push({
+        stock,
+        quote,
+        kline,
+        dimensions: dims.sort((a, b) => DIMENSIONS.findIndex((d) => d.key === a.dimensionKey) - DIMENSIONS.findIndex((d) => d.key === b.dimensionKey)),
+        categoryAverages,
+        overallScore,
+        growthScore,
+        breakout,
+      });
+    }
+
+    return result;
+  } catch (error) {
+    console.error("getMarketSnapshot DB error:", error);
+    return [];
   }
-  const dimsByStock = new Map<number, DimensionScore[]>();
-  for (const row of allDims) {
-    const arr = dimsByStock.get(row.stockId) ?? [];
-    arr.push(row);
-    dimsByStock.set(row.stockId, arr);
-  }
-
-  const result: StockAnalytics[] = [];
-
-  for (const stock of allStocks) {
-    const quote = quoteByStock.get(stock.id);
-    const kRows = klinesByStock.get(stock.id) ?? [];
-    const dims = dimsByStock.get(stock.id) ?? [];
-    if (!quote || kRows.length === 0) continue;
-
-    const kline: KlinePoint[] = kRows.map((r) => ({
-      date: r.tradeDate,
-      open: Number(r.open),
-      high: Number(r.high),
-      low: Number(r.low),
-      close: Number(r.close),
-      volume: Number(r.volume),
-    }));
-
-    const closes = kline.map((k) => k.close);
-    const volumes = kline.map((k) => k.volume);
-    const livePrice = Number(quote.price);
-    const liveVolume = Number(quote.volumeLots) * 100 || volumes[volumes.length - 1];
-    const effectiveCloses = [...closes, livePrice];
-    const effectiveVolumes = [...volumes, liveVolume];
-
-    const breakout = detectBottomBreakout(effectiveCloses, effectiveVolumes);
-
-    const categoryAverages = {
-      macro: average(dims.filter((d) => d.category === "macro").map((d) => d.score)),
-      financial: average(dims.filter((d) => d.category === "financial").map((d) => d.score)),
-      technical: average(dims.filter((d) => d.category === "technical").map((d) => d.score)),
-      industry: average(dims.filter((d) => d.category === "industry").map((d) => d.score)),
-    } as Record<DimensionCategory, number>;
-
-    const overallScore = average(dims.map((d) => d.score));
-    const growthScore = average(dims.filter((d) => GROWTH_DIMENSION_KEYS.includes(d.dimensionKey)).map((d) => d.score));
-
-    result.push({
-      stock,
-      quote,
-      kline,
-      dimensions: dims.sort((a, b) => DIMENSIONS.findIndex((d) => d.key === a.dimensionKey) - DIMENSIONS.findIndex((d) => d.key === b.dimensionKey)),
-      categoryAverages,
-      overallScore,
-      growthScore,
-      breakout,
-    });
-  }
-
-  return result;
 }
 
 export async function getStockAnalyticsByCode(code: string): Promise<StockAnalytics | null> {
